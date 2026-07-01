@@ -1043,6 +1043,12 @@ function! s:eval_tree(var, nest, isMapOrSliceChild) abort
       let v .= printf("%s[%d]%s", a:var.type, a:var.len,
             \ len(a:var.value) > 0 ? ': ' . s:printf_string_value(a:var.value) : '')
 
+    elseif s:is_byte_slice(kind, a:var.type)
+      " Byte slices/arrays: mimic fmt's %q instead of listing each uint8.
+      let l:bytes = map(copy(a:var.children), 'str2nr(v:val.value)')
+      let v .= printf("%s[%d]: \"%s\"", a:var.type, a:var.len,
+            \ s:escape_bytes(l:bytes, 1))
+
     elseif kind == 'Slice' || kind == 'String' || kind == 'Map' || kind == 'Array'
       let v .= printf("%s[%d]", a:var.type, a:var.len)
 
@@ -1068,8 +1074,22 @@ function! s:eval_tree(var, nest, isMapOrSliceChild) abort
   endif
 
   if index(['Chan', 'Complex64', 'Complex128'], kind) == -1 && a:var.type != 'error'
+        \ && !s:is_byte_slice(kind, a:var.type)
+    " Slices/arrays/maps are over-fetched so byte slices render fully (see
+    " s:update_variables); trim the rest back to MaxArrayValues here. Maps
+    " alternate key/value children, so allow twice as many.
+    let l:max = -1
+    if kind == 'Slice' || kind == 'Array'
+      let l:max = get(s:, 'maxArrayValues', 20)
+    elseif kind == 'Map'
+      let l:max = get(s:, 'maxArrayValues', 20) * 2
+    endif
+
     let l:idx = 0
     for c in a:var.children
+      if l:max >= 0 && l:idx >= l:max
+        break
+      endif
       if kind == 'Map'
         " Maps alternate children between keys and values. Keys will be even
         " number indexes.
@@ -1090,15 +1110,32 @@ function! s:eval_tree(var, nest, isMapOrSliceChild) abort
   return v
 endfunction
 
+" s:is_byte_slice reports whether the variable is a []uint8 / [N]uint8.
+function! s:is_byte_slice(kind, type) abort
+  return (a:kind == 'Slice' || a:kind == 'Array') && a:type =~ '\[[0-9]*\]uint8$'
+endfunction
+
 function! s:printf_string_value(value) abort
   if type(a:value) != v:t_blob
     return printf("%s", a:value)
   endif
+  return s:escape_bytes(a:value, 0)
+endfunction
+
+" s:escape_bytes renders a list/blob of byte values the way fmt does for %q:
+" printable ASCII verbatim, known escapes as \n etc, everything else as \x..
+" When a:quoted is set, inner double-quotes and backslashes are escaped too
+" (for the quote-wrapped byte-slice form); a plain string is left as-is.
+function! s:escape_bytes(bytes, quoted) abort
   let l:specials = ['\a', '\b', '\t', '\n', '\v', '\f', '\r']
   let l:str = ''
-  for b in a:value
+  for b in a:bytes
     if 7 <= b && b <= 13
       let l:str .= specials[b-7]
+    elseif a:quoted && b == 34
+      let l:str .= '\"'
+    elseif a:quoted && b == 92
+      let l:str .= '\\'
     elseif 32 <= b && b <= 126
       let l:str .= printf("%c", b)
     else
@@ -1303,9 +1340,18 @@ function! s:update_variables() abort
   " MaxStringLen is the maximum number of bytes read from a string
   " MaxArrayValues is the maximum number of elements read from an array, a slice or a map.
   " MaxStructFields is the maximum number of fields read from a struct, -1 will read all fields.
+  " Byte slices are rendered as strings, so they need MaxStringLen elements to
+  " be shown fully, but MaxArrayValues caps the elements Delve returns. Request
+  " enough for both; non-byte slices/arrays/maps are trimmed back to
+  " MaxArrayValues when rendered (see s:eval_tree).
+  let l:loadConfig = copy(go#config#DebugLocalVariablesLoadConfig())
+  let s:maxArrayValues = get(l:loadConfig, 'MaxArrayValues', 20)
+  let l:loadConfig.MaxArrayValues =
+        \ max([s:maxArrayValues, get(l:loadConfig, 'MaxStringLen', 20)])
+
   let l:cfg = {
         \ 'scope': {'GoroutineID': s:goroutineID()},
-        \ 'cfg':   go#config#DebugLocalVariablesLoadConfig()
+        \ 'cfg':   l:loadConfig
         \ }
 
   try
