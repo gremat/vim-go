@@ -1080,7 +1080,7 @@ function! s:eval_tree(var, nest, isMapOrSliceChild) abort
           let v .= printf("%s%s\n", repeat(' ', nest + 2), s:eval_tree(c, 0, 1))
         endif
       elseif kind == 'Slice'
-        let v .= printf("%d: %s\n", l:idx, s:eval_tree(c, nest + 1, 1))
+        let v .= printf("%s%d: %s\n", repeat(' ', nest + 1), l:idx, s:eval_tree(c, nest + 1, 1))
       else
         let v .= s:eval_tree(c, nest + 1, 0)
       endif
