@@ -1372,7 +1372,7 @@ endfunction
 
 function! go#debug#Set(symbol, value) abort
   try
-    let l:promise = go#promise#New(function('s:rpc_response'), 20000, {})
+    let l:promise = go#promise#New(function('s:rpc_response'), 2000, {})
     call s:call_jsonrpc(l:promise.wrapper, 'RPCServer.State')
     let l:res = l:promise.await()
 
