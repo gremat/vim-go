@@ -20,6 +20,15 @@ function! go#doc#OpenBrowser(...) abort
 endfunction
 
 function! s:docURL(...) abort
+  if len(a:000) == 0
+    " On an import line, point at the package's pkg.go.dev page directly;
+    " gopls DocLink and the cursor word don't resolve import path strings.
+    let l:importpath = s:importPath()
+    if l:importpath isnot ''
+      return printf('%s/%s', go#config#DocUrl(), l:importpath)
+    endif
+  endif
+
   if len(a:000) == 0 && go#config#GoplsEnabled()
     " call go#lsp#DocLink directly instead of s:docURLFor, because s:docURLFor
     " will strip any version information from the URL.
@@ -256,6 +265,34 @@ function! s:godocWord(...) abort
   endif
 
   return l:words
+endfunction
+
+" s:importPath returns the import path under the cursor when the current line
+" is an import declaration, or '' otherwise.
+function! s:importPath() abort
+  let l:line = getline('.')
+  " optional 'import', optional alias / '.' / '_', then a double-quoted path.
+  let l:m = matchlist(l:line, '^\s*\%(import\s\+\)\?\%(\%(\w\+\|\.\|_\)\s\+\)\?"\([^"]\+\)"\s*$')
+  if empty(l:m)
+    return ''
+  endif
+  " Guard against plain strings: need an explicit 'import' or an import block.
+  if l:line =~# '^\s*import\>' || s:inImportBlock()
+    return l:m[1]
+  endif
+  return ''
+endfunction
+
+" s:inImportBlock reports whether the cursor is inside an import ( ... ) block.
+function! s:inImportBlock() abort
+  " ponytail: nearest ')' above the nearest 'import (' means we're outside;
+  " good enough without a full paren-matcher.
+  let l:open = search('^\s*import\s*(', 'bnW')
+  if l:open == 0
+    return 0
+  endif
+  let l:close = search('^\s*)', 'bnW')
+  return l:close < l:open
 endfunction
 
 function! s:godocCursorWord() abort
