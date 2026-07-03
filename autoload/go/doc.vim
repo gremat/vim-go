@@ -11,6 +11,15 @@ scriptencoding utf-8
 let s:buf_nr = -1
 
 function! go#doc#OpenBrowser(...) abort
+  if len(a:000) == 0
+    " Don't leak private module paths to a public doc host.
+    let l:importpath = s:importPath()
+    if l:importpath isnot '' && s:isPrivate(l:importpath)
+      call go#util#EchoWarning(printf("'%s' matches GOPRIVATE; not opening browser", l:importpath))
+      return
+    endif
+  endif
+
   let l:url = call('s:docURL', a:000)
   if l:url is ''
     call go#util#EchoWarning("could not find path for doc URL")
@@ -281,6 +290,48 @@ function! s:importPath() abort
     return l:m[1]
   endif
   return ''
+endfunction
+
+" s:isPrivate reports whether an import path matches GOPRIVATE, following Go's
+" module.MatchPrefixPatterns: a comma-separated list of path.Match globs, each
+" matched against the leading path elements of the import path.
+function! s:isPrivate(path) abort
+  let l:globs = go#util#env('goprivate')
+  if l:globs is ''
+    return 0
+  endif
+  let l:parts = split(a:path, '/', 1)
+  for l:glob in split(l:globs, ',')
+    let l:glob = trim(l:glob)
+    if l:glob is ''
+      continue
+    endif
+    " A glob with N slashes matches the first N+1 elements of the path.
+    let l:n = count(l:glob, '/')
+    if len(l:parts) < l:n + 1
+      continue
+    endif
+    let l:prefix = join(l:parts[0:l:n], '/')
+    if l:prefix =~# s:globToRegex(l:glob)
+      return 1
+    endif
+  endfor
+  return 0
+endfunction
+
+" s:globToRegex converts a path.Match glob to an anchored Vim regex where '*'
+" and '?' match runs of non-slash characters.
+" ponytail: '[...]' character classes aren't handled (unheard-of in GOPRIVATE);
+" add class translation here if that ever shows up.
+function! s:globToRegex(glob) abort
+  let l:star = nr2char(1)
+  let l:ques = nr2char(2)
+  let l:g = substitute(a:glob, '\*', l:star, 'g')
+  let l:g = substitute(l:g, '?', l:ques, 'g')
+  let l:g = escape(l:g, '.^$~[]\/')
+  let l:g = substitute(l:g, l:star, '[^/]*', 'g')
+  let l:g = substitute(l:g, l:ques, '[^/]', 'g')
+  return '^' . l:g . '$'
 endfunction
 
 " s:inImportBlock reports whether the cursor is inside an import ( ... ) block.

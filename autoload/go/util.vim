@@ -120,6 +120,12 @@ function! go#util#gopath() abort
   return substitute(s:exec(['go', 'env', 'GOPATH'])[0], '\n', '', 'g')
 endfunction
 
+" goprivate returns 'go env GOPRIVATE'. This is an internal function and
+" shouldn't be used. Use go#util#env('goprivate') instead.
+function! go#util#goprivate() abort
+  return substitute(s:exec(['go', 'env', 'GOPRIVATE'])[0], '\n', '', 'g')
+endfunction
+
 " gomod returns 'go env GOMOD'. gomod changes depending on the folder. Don't
 " use go#util#env as it caches the value.
 function! go#util#gomod() abort
